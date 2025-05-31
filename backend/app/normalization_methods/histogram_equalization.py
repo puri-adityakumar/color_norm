@@ -33,13 +33,14 @@ def plot_img_and_hist(image, axes, bins=256):
 
     return ax_img, ax_hist, ax_cdf
 
-def histogram_equalization(img, save_dir=None, grayscale=True):
-    """Apply histogram equalization techniques to a single image and plot the results.
+def histogram_equalization(img, save_dir=None, grayscale=True, generate_plot=True):
+    """Apply histogram equalization techniques to a single image and optionally plot the results.
     
     Args:
         img: Input image
         save_dir: Directory to save the resulting images (default: None)
         grayscale: Whether to convert color images to grayscale (default: True)
+        generate_plot: Whether to generate and save matplotlib plot (default: True)
         
     Returns:
         dict: Dictionary containing processed images and paths
@@ -64,48 +65,58 @@ def histogram_equalization(img, save_dir=None, grayscale=True):
     # Adaptive histogram equalization
     img_adapteq = exposure.equalize_adapthist(img_processed, clip_limit=0.03)
     
-    # Create plot
-    fig = plt.figure(figsize=(8, 5))
-    axes = np.zeros((2, 4), dtype=object)
-    
-    axes[0, 0] = fig.add_subplot(2, 4, 1)
-    for i in range(1, 4):
-        axes[0, i] = fig.add_subplot(2, 4, 1 + i, sharex=axes[0, 0], sharey=axes[0, 0])
-    for i in range(0, 4):
-        axes[1, i] = fig.add_subplot(2, 4, 5 + i)
-    
-    # Plot images and histograms
-    ax_img, ax_hist, ax_cdf = plot_img_and_hist(img_processed, axes[:, 0])
-    ax_img.set_title('Original')
-    y_min, y_max = ax_hist.get_ylim()
-    ax_hist.set_ylabel('Number of pixels')
-    ax_hist.set_yticks(np.linspace(0, y_max, 5))
-    
-    ax_img, ax_hist, ax_cdf = plot_img_and_hist(img_rescale, axes[:, 1])
-    ax_img.set_title('Contrast stretching')
-    
-    ax_img, ax_hist, ax_cdf = plot_img_and_hist(img_eq, axes[:, 2])
-    ax_img.set_title('Histogram equalization')
-    
-    ax_img, ax_hist, ax_cdf = plot_img_and_hist(img_adapteq, axes[:, 3])
-    ax_img.set_title('Adaptive equalization')
-    ax_cdf.set_ylabel('Fraction of total intensity')
-    ax_cdf.set_yticks(np.linspace(0, 1, 5))
-    
-    # Adjust layout
-    fig.tight_layout()
-    
     result_paths = {}
     
+    # Only generate plot if requested
+    if generate_plot:
+        # Create plot
+        fig = plt.figure(figsize=(8, 5))
+        axes = np.zeros((2, 4), dtype=object)
+        
+        axes[0, 0] = fig.add_subplot(2, 4, 1)
+        for i in range(1, 4):
+            axes[0, i] = fig.add_subplot(2, 4, 1 + i, sharex=axes[0, 0], sharey=axes[0, 0])
+        for i in range(0, 4):
+            axes[1, i] = fig.add_subplot(2, 4, 5 + i)
+        
+        # Plot images and histograms
+        ax_img, ax_hist, ax_cdf = plot_img_and_hist(img_processed, axes[:, 0])
+        ax_img.set_title('Original')
+        y_min, y_max = ax_hist.get_ylim()
+        ax_hist.set_ylabel('Number of pixels')
+        ax_hist.set_yticks(np.linspace(0, y_max, 5))
+        
+        ax_img, ax_hist, ax_cdf = plot_img_and_hist(img_rescale, axes[:, 1])
+        ax_img.set_title('Contrast stretching')
+        
+        ax_img, ax_hist, ax_cdf = plot_img_and_hist(img_eq, axes[:, 2])
+        ax_img.set_title('Histogram equalization')
+        
+        ax_img, ax_hist, ax_cdf = plot_img_and_hist(img_adapteq, axes[:, 3])
+        ax_img.set_title('Adaptive equalization')
+        ax_cdf.set_ylabel('Fraction of total intensity')
+        ax_cdf.set_yticks(np.linspace(0, 1, 5))
+        
+        # Adjust layout
+        fig.tight_layout()
+        
+        if save_dir:
+            # Ensure save directory exists
+            save_dir = Path(save_dir)
+            save_dir.mkdir(parents=True, exist_ok=True)
+            
+            # Save plot
+            plot_path = save_dir / "histogram_plot.png"
+            plt.savefig(plot_path, bbox_inches='tight')
+            result_paths['plot'] = plot_path
+        
+        plt.close()
+    
+    # Save processed images if save_dir is provided
     if save_dir:
         # Ensure save directory exists
         save_dir = Path(save_dir)
         save_dir.mkdir(parents=True, exist_ok=True)
-        
-        # Save plot
-        plot_path = save_dir / "histogram_plot.png"
-        plt.savefig(plot_path, bbox_inches='tight')
-        result_paths['plot'] = plot_path
         
         # Save processed images
         for name, img_data in [
@@ -117,8 +128,6 @@ def histogram_equalization(img, save_dir=None, grayscale=True):
             img_path = save_dir / f"histogram_{name}.png"
             plt.imsave(img_path, img_data, cmap='gray')
             result_paths[name] = img_path
-    
-    plt.close()
     
     return {
         'images': {

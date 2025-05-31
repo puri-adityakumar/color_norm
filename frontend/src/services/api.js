@@ -29,9 +29,4 @@ export const processImage = async (sourceImage, method, referenceImage = null) =
   return response.data;
 };
 
-export const cleanupFiles = async () => {
-  const response = await api.delete('/api/normalization/cleanup');
-  return response.data;
-};
-
 export default api; 

@@ -3,15 +3,13 @@ from fastapi import APIRouter, File, UploadFile, Form, HTTPException, Query, Bod
 from fastapi.responses import JSONResponse, FileResponse
 from typing import Optional, Union
 import os
-import shutil
 from pathlib import Path
 
 from app.services.normalization_service import NormalizationService
 from app.models.schemas import (
     MethodsResponse, 
     NormalizationResponse,
-    ErrorResponse,
-    CleanupResponse
+    ErrorResponse
 )
 
 # Create router
@@ -145,19 +143,30 @@ async def process_image(
                 "url": f"/{source_path}",
                 "download_url": f"/api/normalization/download/{os.path.basename(source_path)}"
             },
-            "result_image": {
+            "chart_data": result.get('chart_data')  # Interactive charts replace static plots
+        }
+        
+        # Handle different response structures based on method
+        if method_name == "histogram_equalization":
+            # Multiple result images for histogram equalization
+            response["result_images"] = []
+            for img_info in result['result_images']:
+                response["result_images"].append({
+                    "name": img_info['name'],
+                    "filename": os.path.basename(img_info['path']),
+                    "path": str(img_info['path']),
+                    "url": f"/{img_info['path']}",
+                    "download_url": f"/api/normalization/download/{os.path.basename(img_info['path'])}",
+                    "key": img_info['key']
+                })
+        else:
+            # Single result image for other methods
+            response["result_image"] = {
                 "filename": os.path.basename(result['result_image']),
                 "path": str(result['result_image']),
                 "url": f"/{result['result_image']}",
                 "download_url": f"/api/normalization/download/{os.path.basename(result['result_image'])}"
-            },
-            "plot": {
-                "filename": os.path.basename(result['plot']),
-                "path": str(result['plot']),
-                "url": f"/{result['plot']}",
-                "download_url": f"/api/normalization/download/{os.path.basename(result['plot'])}"
             }
-        }
         
         # Add reference image info if provided
         if reference_path:
@@ -172,46 +181,6 @@ async def process_image(
         
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-
-@router.delete("/cleanup", response_model=CleanupResponse)
-async def cleanup_files():
-    """Clean up temporary files and directories (for development/testing)"""
-    count = 0
-    
-    # Function to remove directory and its contents
-    def remove_dir_contents(directory: Path):
-        count = 0
-        if directory.exists():
-            # First remove all files and subdirectories
-            for item in directory.glob('**/*'):
-                if item.is_file():
-                    item.unlink()
-                    count += 1
-                elif item.is_dir():
-                    try:
-                        shutil.rmtree(item)
-                        count += 1  # Count removed directory as one item
-                    except Exception as e:
-                        print(f"Error removing directory {item}: {e}")
-        return count
-
-    try:
-        # Clean up uploads directory
-        count += remove_dir_contents(UPLOAD_DIR)
-        
-        # Clean up results directory
-        count += remove_dir_contents(RESULT_DIR)
-            
-        return {
-            "success": True,
-            "message": "All temporary files and directories deleted",
-            "files_removed": count
-        }
-    except Exception as e:
-        raise HTTPException(
-            status_code=500,
-            detail=f"Error during cleanup: {str(e)}"
-        )
 
 @router.get("/download/{filename}")
 async def download_file(filename: str):
@@ -253,3 +222,79 @@ async def download_file(filename: str):
         
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error downloading file: {str(e)}")
+
+@router.get("/chart-data/{source_filename}")
+async def get_chart_data(source_filename: str):
+    """Get histogram data for interactive charts"""
+    try:
+        import numpy as np
+        import cv2
+        from skimage import exposure
+        
+        # Find the source image file
+        source_path = None
+        
+        # First try exact filename match
+        exact_path = UPLOAD_DIR / source_filename
+        if exact_path.exists() and exact_path.is_file():
+            source_path = exact_path
+        else:
+            # If exact match fails, try partial match
+            for upload_file in UPLOAD_DIR.glob("*"):
+                if upload_file.is_file() and source_filename in upload_file.name:
+                    source_path = upload_file
+                    break
+        
+        if not source_path or not source_path.exists():
+            # List available files for debugging
+            available_files = [f.name for f in UPLOAD_DIR.glob("*") if f.is_file()]
+            raise HTTPException(
+                status_code=404, 
+                detail=f"Source file '{source_filename}' not found. Available files: {available_files}"
+            )
+        
+        # Read and process image
+        source_img = cv2.imread(str(source_path))
+        if source_img is None:
+            raise HTTPException(status_code=400, detail="Could not read image file")
+        
+        source_img = cv2.cvtColor(source_img, cv2.COLOR_BGR2RGB)
+        
+        # Calculate histogram data for each RGB channel
+        chart_data = {
+            "source_histogram": [],
+            "source_cdf": []
+        }
+        
+        colors = ['red', 'green', 'blue']
+        color_indices = [0, 1, 2]  # R, G, B channel indices
+        
+        # Calculate histograms for each channel
+        for i, color in enumerate(colors):
+            # Get histogram
+            hist, bins = exposure.histogram(source_img[..., color_indices[i]], nbins=256, source_range='dtype')
+            
+            # Get CDF
+            cdf, cdf_bins = exposure.cumulative_distribution(source_img[..., color_indices[i]], nbins=256)
+            
+            # Prepare histogram data
+            for j in range(len(hist)):
+                chart_data["source_histogram"].append({
+                    "bin": int(bins[j]),
+                    "count": int(hist[j]),
+                    "channel": color,
+                    "normalized_count": float(hist[j] / hist.max()) if hist.max() > 0 else 0
+                })
+            
+            # Prepare CDF data
+            for j in range(len(cdf)):
+                chart_data["source_cdf"].append({
+                    "bin": int(cdf_bins[j]),
+                    "cdf": float(cdf[j]),
+                    "channel": color
+                })
+        
+        return chart_data
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error generating chart data: {str(e)}")

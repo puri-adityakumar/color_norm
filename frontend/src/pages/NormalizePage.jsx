@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { processImage, getMethods, cleanupFiles } from '../services/api';
+import { processImage, getMethods } from '../services/api';
+import HistogramChart from '../components/HistogramChart';
 
 const NormalizePage = () => {
   const [methods, setMethods] = useState([]);
@@ -10,11 +11,11 @@ const NormalizePage = () => {
   const [referencePreview, setReferencePreview] = useState(null);
   const [processedImages, setProcessedImages] = useState([]);
   const [selectedProcessedImage, setSelectedProcessedImage] = useState(null);
-  const [plotImage, setPlotImage] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
-  const [cleanupStatus, setCleanupStatus] = useState(null);
   const [apiResponse, setApiResponse] = useState(null); // Store full API response for download URLs
+  const [chartData, setChartData] = useState(null); // Store chart data for interactive charts
+  const [currentChartIndex, setCurrentChartIndex] = useState(0); // For chart slider
 
   useEffect(() => {
     const fetchMethods = async () => {
@@ -36,9 +37,10 @@ const NormalizePage = () => {
       setSourcePreview(URL.createObjectURL(file));
       setProcessedImages([]);
       setSelectedProcessedImage(null);
-      setPlotImage(null);
       setError(null);
       setApiResponse(null);
+      setChartData(null);
+      resetChartIndex();
     }
   };
 
@@ -49,9 +51,10 @@ const NormalizePage = () => {
       setReferencePreview(URL.createObjectURL(file));
       setProcessedImages([]);
       setSelectedProcessedImage(null);
-      setPlotImage(null);
       setError(null);
       setApiResponse(null);
+      setChartData(null);
+      resetChartIndex();
     }
   };
 
@@ -60,9 +63,10 @@ const NormalizePage = () => {
     setSelectedMethod(methodId);
     setProcessedImages([]);
     setSelectedProcessedImage(null);
-    setPlotImage(null);
     setError(null);
     setApiResponse(null);
+    setChartData(null);
+    resetChartIndex();
   };
 
   const handleProcessedImageChange = (event) => {
@@ -111,12 +115,12 @@ const NormalizePage = () => {
           setSelectedProcessedImage(imageUrl);
         }
 
-        // Fetch the plot image
-        if (response.plot) {
-          const plotResponse = await fetch(`${import.meta.env.VITE_API_URL}${response.plot.url}`);
-          const plotBlob = await plotResponse.blob();
-          const plotUrl = URL.createObjectURL(plotBlob);
-          setPlotImage(plotUrl);
+        // Use chart data directly from API response
+        if (response.chart_data) {
+          setChartData(response.chart_data);
+          resetChartIndex(); // Start from first chart
+        } else {
+          setChartData(null);
         }
 
         setApiResponse(response);
@@ -125,33 +129,6 @@ const NormalizePage = () => {
       }
     } catch (err) {
       setError('Error processing image. Please try again.');
-      console.error(err);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleCleanup = async () => {
-    try {
-      setLoading(true);
-      setError(null);
-      const response = await cleanupFiles();
-      if (response.success) {
-        setCleanupStatus(`Successfully cleaned up ${response.files_removed} files`);
-        // Clear all images and previews
-        setSourceImage(null);
-        setReferenceImage(null);
-        setSourcePreview(null);
-        setReferencePreview(null);
-        setProcessedImages([]);
-        setSelectedProcessedImage(null);
-        setPlotImage(null);
-        setApiResponse(null);
-      } else {
-        setError(response.message || 'Error during cleanup');
-      }
-    } catch (err) {
-      setError('Error during cleanup. Please try again.');
       console.error(err);
     } finally {
       setLoading(false);
@@ -169,46 +146,48 @@ const NormalizePage = () => {
     document.body.removeChild(link);
   };
 
-  const handleDownloadAll = () => {
-    if (!apiResponse) return;
+  // Get available charts based on method and data
+  const getAvailableCharts = () => {
+    if (!chartData || !chartData.images) return [];
     
-    // Download all available images with a small delay between downloads
-    const downloadQueue = [];
-    
-    if (apiResponse.result_image?.download_url) {
-      downloadQueue.push({
-        url: apiResponse.result_image.download_url,
-        filename: apiResponse.result_image.filename
-      });
+    if (selectedMethod === 1) {
+      // Histogram Equalization - 4 charts
+      return [
+        { key: 'original', title: 'Original Image', description: 'Before enhancement' },
+        { key: 'rescale', title: 'Contrast Stretching', description: 'Rescale intensity range' },
+        { key: 'equalize', title: 'Histogram Equalization', description: 'Uniform distribution' },
+        { key: 'adaptive_equalize', title: 'Adaptive Equalization', description: 'Local histogram equalization' }
+      ];
+    } else {
+      // Other methods - up to 3 charts
+      const charts = [
+        { key: 'source', title: 'Source Image Histogram', description: 'Original image distribution' }
+      ];
+      
+      if (chartData.images.reference) {
+        charts.push({ key: 'reference', title: 'Reference Image Histogram', description: 'Target distribution' });
+      }
+      
+      charts.push({ key: 'result', title: 'Result Image Histogram', description: 'Normalized distribution' });
+      
+      return charts;
     }
-    
-    if (apiResponse.plot?.download_url) {
-      downloadQueue.push({
-        url: apiResponse.plot.download_url,
-        filename: apiResponse.plot.filename
-      });
-    }
-    
-    if (apiResponse.source_image?.download_url) {
-      downloadQueue.push({
-        url: apiResponse.source_image.download_url,
-        filename: apiResponse.source_image.filename
-      });
-    }
-    
-    if (apiResponse.reference_image?.download_url) {
-      downloadQueue.push({
-        url: apiResponse.reference_image.download_url,
-        filename: apiResponse.reference_image.filename
-      });
-    }
-    
-    // Download each file with a delay to avoid overwhelming the browser
-    downloadQueue.forEach((item, index) => {
-      setTimeout(() => {
-        handleDownload(item.url, item.filename);
-      }, index * 500); // 500ms delay between downloads
-    });
+  };
+
+  // Navigate charts
+  const nextChart = () => {
+    const charts = getAvailableCharts();
+    setCurrentChartIndex((prev) => (prev + 1) % charts.length);
+  };
+
+  const prevChart = () => {
+    const charts = getAvailableCharts();
+    setCurrentChartIndex((prev) => (prev - 1 + charts.length) % charts.length);
+  };
+
+  // Reset chart index when method or data changes
+  const resetChartIndex = () => {
+    setCurrentChartIndex(0);
   };
 
   return (
@@ -277,31 +256,11 @@ const NormalizePage = () => {
               </div>
             )}
 
-            {cleanupStatus && (
-              <div className="p-4 bg-green-50 text-green-700 rounded-md border border-green-200">
-                {cleanupStatus}
-              </div>
-            )}
-
             {/* Image Previews */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
               {sourcePreview && (
                 <div className="space-y-2">
-                  <div className="flex justify-between items-center">
-                    <h3 className="text-lg font-semibold text-gray-700">Source Image</h3>
-                    {apiResponse?.source_image?.download_url && (
-                      <button
-                        onClick={() => handleDownload(apiResponse.source_image.download_url, apiResponse.source_image.filename)}
-                        className="flex items-center space-x-2 px-3 py-2 bg-gray-600 hover:bg-gray-700 text-white text-xs font-medium rounded-lg transition-colors duration-200"
-                        title="Download source image"
-                      >
-                        <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                        </svg>
-                        <span>Download</span>
-                      </button>
-                    )}
-                  </div>
+                  <h3 className="text-lg font-semibold text-gray-700">Source Image</h3>
                   <div className="border rounded-lg overflow-hidden">
                     <img
                       src={sourcePreview}
@@ -314,21 +273,7 @@ const NormalizePage = () => {
 
               {referencePreview && (
                 <div className="space-y-2">
-                  <div className="flex justify-between items-center">
-                    <h3 className="text-lg font-semibold text-gray-700">Reference Image</h3>
-                    {apiResponse?.reference_image?.download_url && (
-                      <button
-                        onClick={() => handleDownload(apiResponse.reference_image.download_url, apiResponse.reference_image.filename)}
-                        className="flex items-center space-x-2 px-3 py-2 bg-gray-600 hover:bg-gray-700 text-white text-xs font-medium rounded-lg transition-colors duration-200"
-                        title="Download reference image"
-                      >
-                        <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                        </svg>
-                        <span>Download</span>
-                      </button>
-                    )}
-                  </div>
+                  <h3 className="text-lg font-semibold text-gray-700">Reference Image</h3>
                   <div className="border rounded-lg overflow-hidden">
                     <img
                       src={referencePreview}
@@ -363,33 +308,13 @@ const NormalizePage = () => {
                   'Process Image'
                 )}
               </button>
-
-              <button
-                onClick={handleCleanup}
-                disabled={loading}
-                className="btn btn-secondary text-lg px-8 py-3"
-              >
-                Clean Up Files
-              </button>
             </div>
 
             {/* Results */}
-            {(processedImages.length > 0 || plotImage) && (
+            {(processedImages.length > 0) && (
               <div className="space-y-6">
                 <div className="flex justify-between items-center">
                   <h3 className="text-xl font-semibold text-gray-900">Results</h3>
-                  {apiResponse && (
-                    <button
-                      onClick={handleDownloadAll}
-                      className="flex items-center space-x-2 px-6 py-3 bg-purple-600 hover:bg-purple-700 text-white font-medium rounded-lg transition-colors duration-200"
-                      title="Download all images"
-                    >
-                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                      </svg>
-                      <span>Download All</span>
-                    </button>
-                  )}
                 </div>
                 
                 {/* Processed Image Selection (for Histogram Equalization) */}
@@ -417,18 +342,48 @@ const NormalizePage = () => {
                     <div className="space-y-2">
                       <div className="flex justify-between items-center">
                         <h4 className="text-lg font-semibold text-gray-700">Processed Image</h4>
-                        {apiResponse?.result_image?.download_url && (
-                          <button
-                            onClick={() => handleDownload(apiResponse.result_image.download_url, apiResponse.result_image.filename)}
-                            className="flex items-center space-x-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg transition-colors duration-200"
-                            title="Download processed image"
-                          >
-                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                            </svg>
-                            <span>Download</span>
-                          </button>
-                        )}
+                        {/* Download button logic for both single result and histogram equalization */}
+                        {(() => {
+                          // For histogram equalization (multiple images)
+                          if (selectedMethod === 1 && apiResponse?.result_images) {
+                            // Find the currently selected image info
+                            const selectedImageInfo = apiResponse.result_images.find(img => {
+                              const currentImageName = processedImages.find(pImg => pImg.url === selectedProcessedImage)?.name;
+                              return img.name === currentImageName;
+                            });
+                            
+                            if (selectedImageInfo?.download_url) {
+                              return (
+                                <button
+                                  onClick={() => handleDownload(selectedImageInfo.download_url, selectedImageInfo.filename)}
+                                  className="flex items-center space-x-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg transition-colors duration-200"
+                                  title="Download selected processed image"
+                                >
+                                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                                  </svg>
+                                  <span>Download</span>
+                                </button>
+                              );
+                            }
+                          }
+                          // For other methods (single result image)
+                          else if (apiResponse?.result_image?.download_url) {
+                            return (
+                              <button
+                                onClick={() => handleDownload(apiResponse.result_image.download_url, apiResponse.result_image.filename)}
+                                className="flex items-center space-x-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg transition-colors duration-200"
+                                title="Download processed image"
+                              >
+                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                                </svg>
+                                <span>Download</span>
+                              </button>
+                            );
+                          }
+                          return null;
+                        })()}
                       </div>
                       <div className="border rounded-lg overflow-hidden">
                         <img
@@ -440,31 +395,90 @@ const NormalizePage = () => {
                     </div>
                   )}
 
-                  {plotImage && (
-                    <div className="space-y-2">
-                      <div className="flex justify-between items-center">
-                        <h4 className="text-lg font-semibold text-gray-700">Histogram Plot</h4>
-                        {apiResponse?.plot?.download_url && (
-                          <button
-                            onClick={() => handleDownload(apiResponse.plot.download_url, apiResponse.plot.filename)}
-                            className="flex items-center space-x-2 px-4 py-2 bg-green-600 hover:bg-green-700 text-white text-sm font-medium rounded-lg transition-colors duration-200"
-                            title="Download histogram plot"
-                          >
-                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                            </svg>
-                            <span>Download</span>
-                          </button>
-                        )}
-                      </div>
-                      <div className="border rounded-lg overflow-hidden">
-                        <img
-                          src={plotImage}
-                          alt="Histogram Plot"
-                          className="w-full h-auto"
-                        />
-                      </div>
-                    </div>
+                  {/* Interactive Histogram Chart Slider */}
+                  {chartData && chartData.images && (
+                    <>
+                      {(() => {
+                        const availableCharts = getAvailableCharts();
+                        const currentChart = availableCharts[currentChartIndex];
+                        
+                        if (!currentChart) return null;
+                        
+                        return (
+                          <div className="space-y-4">
+                            {/* Chart Navigation Header */}
+                            <div className="flex justify-between items-center">
+                              <div>
+                                <h3 className="text-xl font-semibold text-gray-900">Interactive Histogram Charts</h3>
+                                <p className="text-sm text-gray-600 mt-1">
+                                  Chart {currentChartIndex + 1} of {availableCharts.length}
+                                </p>
+                              </div>
+                              
+                              {/* Navigation Controls */}
+                              <div className="flex items-center space-x-4">
+                                <button
+                                  onClick={prevChart}
+                                  disabled={availableCharts.length <= 1}
+                                  className="flex items-center space-x-2 px-4 py-2 bg-gray-600 hover:bg-gray-700 disabled:bg-gray-300 text-white font-medium rounded-lg transition-colors duration-200"
+                                >
+                                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+                                  </svg>
+                                  <span>Previous</span>
+                                </button>
+                                
+                                <button
+                                  onClick={nextChart}
+                                  disabled={availableCharts.length <= 1}
+                                  className="flex items-center space-x-2 px-4 py-2 bg-gray-600 hover:bg-gray-700 disabled:bg-gray-300 text-white font-medium rounded-lg transition-colors duration-200"
+                                >
+                                  <span>Next</span>
+                                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                                  </svg>
+                                </button>
+                              </div>
+                            </div>
+
+                            {/* Current Chart Display */}
+                            <div className="space-y-2">
+                              <div className="flex justify-between items-center">
+                                <h4 className="text-lg font-semibold text-gray-700">{currentChart.title}</h4>
+                                <div className="text-xs text-gray-500">
+                                  {currentChart.description}
+                                </div>
+                              </div>
+                              
+                              {/* Full-size Chart */}
+                              <div className="border rounded-lg overflow-hidden bg-white">
+                                <HistogramChart 
+                                  data={chartData.images} 
+                                  imageType={currentChart.key}
+                                  title="Histogram Analysis"
+                                />
+                              </div>
+                            </div>
+
+                            {/* Chart Indicators */}
+                            <div className="flex justify-center space-x-2">
+                              {availableCharts.map((_, index) => (
+                                <button
+                                  key={index}
+                                  onClick={() => setCurrentChartIndex(index)}
+                                  className={`w-3 h-3 rounded-full transition-colors duration-200 ${
+                                    index === currentChartIndex 
+                                      ? 'bg-blue-600' 
+                                      : 'bg-gray-300 hover:bg-gray-400'
+                                  }`}
+                                  title={`Go to chart ${index + 1}`}
+                                />
+                              ))}
+                            </div>
+                          </div>
+                        );
+                      })()}
+                    </>
                   )}
                 </div>
               </div>

@@ -21,6 +21,40 @@ class ImageInfo(BaseModel):
     path: str
     url: str
     download_url: str
+
+class ResultImageInfo(BaseModel):
+    """Schema for result image with additional metadata"""
+    name: str
+    filename: str
+    path: str
+    url: str
+    download_url: str
+    key: str
+
+class HistogramData(BaseModel):
+    """Schema for histogram data point"""
+    bin: float
+    count: float
+    normalized_count: float
+    channel: str
+
+class CDFData(BaseModel):
+    """Schema for CDF data point"""
+    bin: float
+    cdf: float
+    channel: str
+
+class ImageChartData(BaseModel):
+    """Schema for chart data of a single image"""
+    histograms: List[HistogramData]
+    cdfs: List[CDFData]
+
+class ChartData(BaseModel):
+    """Schema for complete chart data - flexible to handle different method types"""
+    # Use Dict to handle both:
+    # - Standard methods: source, reference, result
+    # - Histogram equalization: original, rescale, equalize, adaptive_equalize
+    images: Dict[str, ImageChartData]
     
 class NormalizationResponse(BaseModel):
     """Response schema for the normalization endpoint"""
@@ -28,21 +62,16 @@ class NormalizationResponse(BaseModel):
     message: str
     method: str
     source_image: ImageInfo
-    result_image: ImageInfo
+    result_image: Optional[ImageInfo] = None  # For single result (other methods)
+    result_images: Optional[List[ResultImageInfo]] = None  # For multiple results (histogram equalization)
     reference_image: Optional[ImageInfo] = None
-    plot: ImageInfo
+    chart_data: Optional[ChartData] = None  # Interactive charts replace static plots
     
 class ErrorResponse(BaseModel):
     """Schema for error responses"""
     success: bool = False
     message: str
     error: Optional[str] = None
-    
-class CleanupResponse(BaseModel):
-    """Response schema for the cleanup endpoint"""
-    success: bool
-    message: str
-    files_removed: int
 
 class MethodInfo(BaseModel):
     id: int
