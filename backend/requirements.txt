@@ -1,0 +1,14 @@
+# Core dependencies from original project
+numpy
+opencv-python
+matplotlib
+scikit-image
+spams-bin
+
+# FastAPI and web dependencies
+fastapi
+uvicorn
+python-multipart
+pydantic
+pillow
+aiofiles
