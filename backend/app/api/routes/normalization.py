@@ -172,14 +172,16 @@ async def process_image(
         if reference_path:
             response["reference_image"] = {
                 "filename": reference_image.filename,
-                "path": str(reference_path),
-                "url": f"/{reference_path}",
+                "path": str(reference_path),                "url": f"/{reference_path}",
                 "download_url": f"/api/normalization/download/{os.path.basename(reference_path)}"
             }
         
         return response
         
     except Exception as e:
+        import traceback
+        error_detail = f"Error processing image: {str(e)}\n{traceback.format_exc()}"
+        print(f"ERROR in normalization route: {error_detail}")  # Add console logging
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/download/{filename}")

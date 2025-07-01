@@ -117,13 +117,12 @@ def histogram_equalization(img, save_dir=None, grayscale=True, generate_plot=Tru
         # Ensure save directory exists
         save_dir = Path(save_dir)
         save_dir.mkdir(parents=True, exist_ok=True)
-        
-        # Save processed images
+          # Save processed images
         for name, img_data in [
             ('original', img_processed),
             ('rescale', img_rescale),
             ('equalize', img_eq),
-            ('adaptive', img_adapteq)
+            ('adaptive_equalize', img_adapteq)  # Changed from 'adaptive' to 'adaptive_equalize'
         ]:
             img_path = save_dir / f"histogram_{name}.png"
             plt.imsave(img_path, img_data, cmap='gray')

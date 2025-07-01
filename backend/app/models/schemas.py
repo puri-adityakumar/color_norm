@@ -44,10 +44,18 @@ class CDFData(BaseModel):
     cdf: float
     channel: str
 
+class ScatterPlotData(BaseModel):
+    """Schema for scatter plot data point"""
+    x: float
+    y: float
+    color: str
+    channel: str
+
 class ImageChartData(BaseModel):
     """Schema for chart data of a single image"""
     histograms: List[HistogramData]
     cdfs: List[CDFData]
+    scatter_plots: List[ScatterPlotData]
 
 class ChartData(BaseModel):
     """Schema for complete chart data - flexible to handle different method types"""

@@ -55,14 +55,13 @@ class NormalizationService:
             if method == "histogram_equalization":
                 # Call histogram equalization function (without plot generation)
                 result = histogram_equalization(source_img, save_dir=method_dir, generate_plot=False)
-                
-                # Return all 4 processed images for histogram equalization
+                  # Return all 4 processed images for histogram equalization
                 result_images = []
                 image_names = {
                     'original': 'Original Grayscale',
                     'rescale': 'Contrast Stretching', 
                     'equalize': 'Histogram Equalization',
-                    'adaptive': 'Adaptive Equalization'
+                    'adaptive_equalize': 'Adaptive Equalization'  # Match the key from histogram_equalization function
                 }
                 
                 for img_key, display_name in image_names.items():
@@ -214,8 +213,7 @@ class NormalizationService:
                     "normalized_count": float(normalized_hist[j]),
                     "channel": "gray"  # Single grayscale channel
                 })
-            
-            # Store CDF data
+              # Store CDF data
             for j in range(len(cdf_bins)):
                 chart_data[img_key]["cdfs"].append({
                     "bin": float(cdf_bins[j]),
@@ -224,11 +222,11 @@ class NormalizationService:
                 })
         
         return {"images": chart_data}
-
+    
     @staticmethod
     def extract_rgb_chart_data(source_img, reference_img, result_img):
         """
-        Extract histogram data for RGB methods (color images)
+        Extract histogram and scatter plot data for RGB methods (color images)
         
         Args:
             source_img: Original source image (before normalization)
@@ -236,12 +234,12 @@ class NormalizationService:
             result_img: Result image after normalization
             
         Returns:
-            dict: Dictionary containing histogram and CDF data for RGB images
+            dict: Dictionary containing histogram, CDF, and scatter plot data for RGB images
         """
         chart_data = {
-            "source": {"histograms": [], "cdfs": []},
-            "reference": {"histograms": [], "cdfs": []}, 
-            "result": {"histograms": [], "cdfs": []}
+            "source": {"histograms": [], "cdfs": [], "scatter_plots": []},
+            "reference": {"histograms": [], "cdfs": [], "scatter_plots": []}, 
+            "result": {"histograms": [], "cdfs": [], "scatter_plots": []}
         }
         
         # Use same parameters as matplotlib function
@@ -267,8 +265,7 @@ class NormalizationService:
                         "bin": float(bins[j]),
                         "count": float(img_hist[j]),
                         "normalized_count": float(normalized_hist[j]),
-                        "channel": color
-                    })
+                        "channel": color                    })
                 
                 # Store CDF data  
                 for j in range(len(cdf_bins)):
@@ -277,5 +274,58 @@ class NormalizationService:
                         "cdf": float(img_cdf[j]),
                         "channel": color
                     })
+            
+            # Generate scatter plot data for this image
+            NormalizationService._generate_scatter_plot_data(img, chart_data[img_key])
         
         return {"images": chart_data}
+    
+    @staticmethod
+    def _generate_scatter_plot_data(img, chart_data_entry, sample_size=2000):
+        """
+        Generate scatter plot data for RGB channels based on the provided Python function
+        
+        Args:
+            img: RGB image array
+            chart_data_entry: Dictionary entry to add scatter plot data to
+            sample_size: Number of pixels to sample for scatter plot (default 2000)
+        """
+        import numpy as np
+        
+        # Ensure the image is RGB
+        if len(img.shape) == 2:
+            img = np.stack((img,) * 3, axis=-1)
+        
+        # Extract RGB channels and flatten them
+        R = img[:, :, 0].flatten().astype(float)
+        G = img[:, :, 1].flatten().astype(float)
+        B = img[:, :, 2].flatten().astype(float)
+        
+        # Sample pixels to avoid overwhelming the frontend with too much data
+        total_pixels = len(R)
+        if total_pixels > sample_size:
+            # Random sampling
+            indices = np.random.choice(total_pixels, sample_size, replace=False)
+            R = R[indices]
+            G = G[indices]
+            B = B[indices]
+        
+        # Center the values for axis positions (assuming 0-255 range)
+        R_centered = R - 127.5
+        G_centered = G - 127.5
+        
+        # Determine dominant channel for each pixel
+        dominant = np.argmax(np.stack((R, G, B), axis=1), axis=1)
+        
+        # Convert dominant channel to color strings
+        color_map = {0: 'red', 1: 'green', 2: 'blue'}
+        colors = [color_map[d] for d in dominant]
+        
+        # Store scatter plot data
+        for i in range(len(R_centered)):
+            chart_data_entry["scatter_plots"].append({
+                "x": float(R_centered[i]),
+                "y": float(G_centered[i]),
+                "color": colors[i],
+                "channel": colors[i]  # For compatibility
+            })
